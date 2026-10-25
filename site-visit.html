@@ -204,6 +204,13 @@ img,video{max-width:100%}
 #fieldrules .rules li { margin: .5em 0; }
 table.conf tr.redir td:first-child { font-style: italic; }
 #codepick input { text-transform: uppercase; }
+/* v3.7.1: chip/pill groups (Navigates to, Equipment types, Opto groups, checklist multiselects, Areas served, record filters) wrap onto new lines.
+   Before: .chips was a no-wrap flex row and .chip was nowrap, while the 3.5.0 rule label{min-width:0} let each pill shrink below its text, so labels spilled over their neighbours. */
+.chips{flex-wrap:wrap;overflow-x:visible;align-items:stretch}
+.chip{white-space:normal;overflow-wrap:anywhere;word-break:normal;flex:0 1 auto;min-width:0;max-width:100%;height:auto;line-height:1.25;gap:8px}
+.chip>span{min-width:0;overflow-wrap:anywhere}
+.chip>input{flex:0 0 28px;width:28px;height:28px;min-height:0;margin:0;padding:0}
+.chip>span{margin:0}
 
 </style>
 </head>
@@ -742,7 +749,7 @@ const SV_SCHEMA = (() => {
    Everything Analyst-owned comes from analyst-schema.js (generated) through schema-map.js; nothing here hard-codes
    panel lists, enums or checklist items. */
 const SCHEMA_VERSION = 6;        // internal store schema (v1 2026-10 PWA, v2 review §4, v3 Analyst 2.0.0, v4 Analyst 2.1.0, v5 Analyst 3.0.0, v6 Analyst 3.1.0)
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.7.1';
 
 const AREA_CODES = CK.areas.map(a => a.code);                       // Ambient / Freezer / Cooler
 const AREA_SYSTEM = Object.fromEntries(CK.areas.map(a => [a.code, a.system]));
@@ -3094,7 +3101,7 @@ document.documentElement.dataset.theme = localStorage.getItem('sv-theme') || 'da
 if (localStorage.getItem('sv-big')) document.documentElement.classList.add('big');
 if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.SV_SINGLE)
   navigator.serviceWorker.register('sw.js').then(() => { const el = $('#swstat'); if (el) el.textContent = swStatus(); }).catch(e => console.warn('SW failed', e));
-navigator.serviceWorker?.addEventListener?.('controllerchange', () => { const el = $('#swstat'); if (el) el.textContent = swStatus(); if (route.hadController) toast('App updated - offline cache refreshed ✓', 3000); });
+navigator.serviceWorker?.addEventListener?.('controllerchange', () => { const el = $('#swstat'); if (el) el.textContent = swStatus(); if (route.hadController) toast('App updated ✓ - close and reopen the app to use the new version', 6000); });
 route.hadController = !!navigator.serviceWorker?.controller;
 iosGate(); acquireLock(); refreshQuota(); route().then(() => setTimeout(firstRunRules, 50));
 

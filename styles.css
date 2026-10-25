@@ -190,3 +190,10 @@ img,video{max-width:100%}
 #fieldrules .rules li { margin: .5em 0; }
 table.conf tr.redir td:first-child { font-style: italic; }
 #codepick input { text-transform: uppercase; }
+/* v3.7.1: chip/pill groups (Navigates to, Equipment types, Opto groups, checklist multiselects, Areas served, record filters) wrap onto new lines.
+   Before: .chips was a no-wrap flex row and .chip was nowrap, while the 3.5.0 rule label{min-width:0} let each pill shrink below its text, so labels spilled over their neighbours. */
+.chips{flex-wrap:wrap;overflow-x:visible;align-items:stretch}
+.chip{white-space:normal;overflow-wrap:anywhere;word-break:normal;flex:0 1 auto;min-width:0;max-width:100%;height:auto;line-height:1.25;gap:8px}
+.chip>span{min-width:0;overflow-wrap:anywhere}
+.chip>input{flex:0 0 28px;width:28px;height:28px;min-height:0;margin:0;padding:0}
+.chip>span{margin:0}

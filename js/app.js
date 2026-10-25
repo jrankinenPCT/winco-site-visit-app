@@ -1309,6 +1309,6 @@ document.documentElement.dataset.theme = localStorage.getItem('sv-theme') || 'da
 if (localStorage.getItem('sv-big')) document.documentElement.classList.add('big');
 if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.SV_SINGLE)
   navigator.serviceWorker.register('sw.js').then(() => { const el = $('#swstat'); if (el) el.textContent = swStatus(); }).catch(e => console.warn('SW failed', e));
-navigator.serviceWorker?.addEventListener?.('controllerchange', () => { const el = $('#swstat'); if (el) el.textContent = swStatus(); if (route.hadController) toast('App updated - offline cache refreshed ✓', 3000); });
+navigator.serviceWorker?.addEventListener?.('controllerchange', () => { const el = $('#swstat'); if (el) el.textContent = swStatus(); if (route.hadController) toast('App updated ✓ - close and reopen the app to use the new version', 6000); });
 route.hadController = !!navigator.serviceWorker?.controller;
 iosGate(); acquireLock(); refreshQuota(); route().then(() => setTimeout(firstRunRules, 50));

@@ -2,7 +2,7 @@
    Everything Analyst-owned comes from analyst-schema.js (generated) through schema-map.js; nothing here hard-codes
    panel lists, enums or checklist items. */
 const SCHEMA_VERSION = 6;        // internal store schema (v1 2026-10 PWA, v2 review §4, v3 Analyst 2.0.0, v4 Analyst 2.1.0, v5 Analyst 3.0.0, v6 Analyst 3.1.0)
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.7.1';
 
 const AREA_CODES = CK.areas.map(a => a.code);                       // Ambient / Freezer / Cooler
 const AREA_SYSTEM = Object.fromEntries(CK.areas.map(a => [a.code, a.system]));
