@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Site Visit">
+<title>Site Visit – Cold Storage DC</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app"><p style="padding:20px">Loading…</p></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="capPhoto" accept="image/*" capture="environment" hidden>
+<input type="file" id="capVideo" accept="video/*" capture="environment" hidden>
+<input type="file" id="capLib" accept="image/*,video/*" multiple hidden>
+<input type="file" id="impFile" accept=".json,.zip,application/json,application/zip" hidden>
+<script src="js/analyst-schema.js"></script>
+<script src="js/schema-map.js"></script>
+<script src="js/gates.js"></script>
+<script src="js/templates.js"></script>
+<script src="js/migrations.js"></script>
+<script src="js/db.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/exports.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
