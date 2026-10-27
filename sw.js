@@ -1,5 +1,5 @@
 /* Service worker: cache-first app shell. Bump VERSION when files change. */
-const VERSION = 'sv-3.7.1';
+const VERSION = 'sv-3.7.3';
 const SHELL = ['./', './index.html', './styles.css', './manifest.webmanifest', './js/analyst-schema.js', './js/schema-map.js', './js/gates.js', './js/templates.js', './js/migrations.js', './js/db.js', './js/zip.js', './js/exports.js', './js/app.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png', './site-visit.html'];
 self.addEventListener('install', e => e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())));

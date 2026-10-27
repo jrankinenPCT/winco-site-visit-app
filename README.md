@@ -8,7 +8,30 @@ An offline-first Progressive Web App for capturing a multi-day site visit and tu
 * **Autosave:** every field saves about 300 ms after you stop typing, and checklist taps save immediately. The header shows `Saving… / Saved ✓`.
 * **Single-file variant:** `site-visit.html` contains everything. Open it directly with no server (see below).
 
-Version **3.7.1** · Analyst canonical schema **3.1.0** (`analyst/v3.1.0/`; 3.0.0 exports import with a version bump only) · internal store `schemaVersion: 6`. v1/v2/v3(2.0)/v4(2.1) exports still import and are upgraded on load. See the changelog in §0.
+Version **3.7.3** · Analyst canonical schema **3.1.0** (`analyst/v3.1.0/`; 3.0.0 exports import with a version bump only) · internal store `schemaVersion: 6`. v1/v2/v3(2.0)/v4(2.1) exports still import and are upgraded on load. See the changelog in §0.
+
+---
+
+## User manual (quick start)
+
+For Jeff, before the Wednesday trip. Use the installed phone app, not `site-visit.html`.
+
+1. **Install (once, while online).** On the iPhone, open **https://jrankinenpct.github.io/winco-site-visit-app/** in **Safari**. Tap Share (□↑) → **Add to Home Screen** → **Add**. From then on, always start the app from the Home Screen icon. It works offline and keeps its data, while a Safari tab can lose its storage. Open the app once while online so everything gets cached. Then tap **Keep data (persist)** on Home.
+2. **First run.** Read the Field rules. Under **➕ New visit**, check your name and give this phone its own **ID code** (e.g. `JR`; the second phone gets `JR2`), then tap **Create visit**. The visit comes seeded with the site-wide sections, the areas, all 56 control panels and the screen list.
+3. **Bottom tabs:**
+   * **🗺️ Stops:** the visit dashboard. It holds the backup bar, the day picker, *Jump to panel* (`MCP-20` or `CP-020`), search, and the stops grouped Site-wide / Areas / per area / Multi-area. Open a stop to work its checklist (✓ Done / N/A / ⛔ Blocked), photos, sections (panels) and records. Use **Panel found on site** to add one that isn't in the list.
+   * **📋 Records:** every record (sections/devices, tags, alarms, screens, issues, observations, interviews), filtered by type, panel or search. This tab also has the 🧭 Navigation matrix and the *New …* buttons.
+   * **🖼️ Media:** all photos and videos, newest first. Tap one to add a caption, change its type, mark it *Sensitive*, open its record, or delete it.
+   * **📤 Export:** backups, the deliverable package, the Analyst CSVs/JSON, the Analyst checks card, reports, and **Import** (restore/merge).
+   * **⚙️ Setup:** visit settings (trip, capture mode, your name, the device ID code, *Attach GPS to photos*), the 🏭 Site registry (site code and tag model), 📅 Days (+ New day), Storage, Help/Field rules, and Display (dark/daylight, A+ bigger text).
+4. **Photos.** On a stop, each 📷 prompt is one shot. 🔴 *required* shots gate the stop. Tap 📷 (or 🎥 for video, 📁 to pick a file) on the prompt. The round 📷 button at the bottom right takes the **next required photo**. Photos are shrunk to a 1400 px long edge (one photo at a time, so the phone does not run out of memory) and named at capture (`<area>_<subject>_<type>_<yyyymmdd>_<seq>`). Use **N/A** only where it is offered. Extra shots go under the prompt list, and on a record they go in its *Media* card.
+5. **GPS.** **Setup → Attach GPS to photos** adds a location to each photo. The first capture asks for location permission; tap **Allow**. Each photo waits up to 5 s for a fix. Indoors (freezer, cooler, docks) a fix often isn't available, and the photo is then saved without GPS, which is normal. GPS is never required.
+6. **Back up every day (more often is better).** Tap **💾 Back up now** on Stops, or use **Export → 💾 Incremental backup**. Then tap **Share** → AirDrop / Save to Files / OneDrive, or Download, and confirm. Incremental = all data plus only the new photos. Do an **📦 Full backup** at least once a day and at the end of the visit. To restore: import the full backup first, then each incremental in order. When a stop is verified the app asks to back up; say yes after each panel.
+7. **Merging a second phone.** Each phone needs its own ID code. On the second phone, make a **Full backup** and AirDrop the ZIP to the main phone. On the main phone, go to **Export → 📥 Import JSON / ZIP**, pick the file and choose **Merge (keep both sides)**. *Never Replace*: Replace is only for restoring a damaged copy. The **📜 Import log** on Export shows what merged and any conflicts.
+8. **Updating the app.** Updates come only from the hosted site. Open the app **while online**. A toast says *"App updated ✓ - close and reopen the app to use the new version"*. Close the app fully (swipe it away) and open it again. That is 2 launches; the version is on Home (*App v…*). Updates never touch your data, but back up first anyway.
+9. **`site-visit.html` is for a laptop only.** It's a single-file copy you can open from disk with no server, for reviewing data or exports on a laptop. It has no offline cache, cannot be installed, and on iOS its storage can be lost. Don't use it on the phone for site capture.
+
+**Which mode on Wednesday?** Use the installed Home Screen app (the PWA), offline, in **quick** capture mode unless you need every field (*full*). Don't use "html mode" (`site-visit.html`) on the phone.
 
 ---
 
@@ -24,6 +47,22 @@ One page to read before the site visit. The app shows it once on first run and a
 ---
 
 ## 0. Changelog
+
+### v3.7.3 (2026-10-27) - Low-memory photo capture fix (includes 3.7.2)
+- **Bug (iPhone, 3.7.1):** after taking a photo, iOS reported low memory and reloaded the app; the photo was lost. **Cause:** `compressPhoto` decoded the full camera image with `createImageBitmap(file)` (no resize) and kept it while drawing - about 4 bytes per pixel, so 48 MB for 12 MP and 96–190 MB for 24–48 MP, plus an oriented copy in Safari. If that failed it decoded the full image **again** (a second `createImageBitmap`, then an `<img>`), and the thumbnail was made by decoding the full original a **third** time. Photos from separate taps could be processed at the same time, and the file input kept a reference to the original File.
+- **Fix - decode once, downscaled:** the size, EXIF orientation, GPS and capture time are read from the first 128 KB of the file only. The photo is decoded with `createImageBitmap(file, {resizeWidth, imageOrientation:'from-image'})` (feature-detected once; otherwise one `<img>` from an object URL that is revoked straight after) and drawn onto **one** canvas at the target size (1400 px long edge, JPEG q0.7, `toBlob` only). The thumbnail is cut from that small canvas. The bitmap, image, object URL and canvas are released before the next step and the File reference is dropped once the photo is stored.
+- **One photo at a time:** every capture (camera, library multi-select, video) goes through a serial queue; each photo is stored and flushed to disk before the next is decoded. Videos are stored directly, no decode.
+- **Fallbacks:** if encoding fails, it retries automatically at 1000 px q0.6, then 800 px q0.5. If all three fail, a **"⛔ Photo NOT saved"** card opens with a big **Retry** button and **"Save original without compression"** (stores the camera file as-is, no decode). Typed notes and form data are never lost (they are saved before the camera opens and are independent of the photo). The NOT SAVED banner, retry queue and storage-full handling are unchanged. If iOS still kills the app mid-photo, the next launch shows *"Last photo was not saved"* with **Retake**.
+- **Unchanged:** existing photos, their IDs (capture-name and SHA-256 legacy IDs) and files are not touched; store schema 6; exports and validate.py (old photos still export `maxEdgePx` 1600, new ones 1400 or the retry size). No GPS fix on the phone → GPS from the photo's EXIF.
+- **Measured** (one 8000×6000 / 48 MP EXIF-rotated JPEG, peak renderer memory above idle, `tests/mem_probe.py`): WebKit 590 MB → 434 MB (−26%), memory still held after the photo 408 MB → 231 MB; Chromium ~200 MB → ~208 MB (both are the single unavoidable full decode; 3.7.1 added 1–2 more full decodes on its failure paths). JS heap +0.2–1.2 MB.
+- App 3.7.3, SW cache `sv-3.7.3`. test_v3.py 213/213 (new tests/test_capture.py: 10 MB 8000×6000 EXIF-6 photo through the real camera input → 1050×1400, orientation, GPS/metadata, thumb, 128 KB header read, serial queue, forced createImageBitmap/toBlob failures → 1000/800 px → card → Retry / Save original, video, legacy IDs + export, interrupted-capture notice); validate.py 3.1.0 VALID.
+
+### v3.7.2 (2026-10-25) - Analyst follow-up (access-issue dedupe, 3.0.0 attestation stamps, ISS-0020 from checklist.json, README)
+- **1. One access issue per section** (already in place since 3.3.0/3.4.0, now covered for every status): while an *Access constraint: {instanceId}* issue (category `gap`) on a section is **Open or InProgress**, tapping ⛔ Blocked again neither prompts nor creates a second one; *Log issue* opens the existing one (`accessIssueFor()` in `exports.js`, used by `offerAccessIssue()` and the Blocked tap in `app.js`). Once that issue is Closed, Answered or Deferred, a new one can be logged. New tests: InProgress deduped, Closed allows exactly one new issue, then that one is deduped too.
+- **2. 3.0.0-era presence taps export as attestation stamps with the time they were recorded** (already in place since 3.4.0, now asserted exactly): `r.attest.presentOnSite = {by, at}` → `presenceAttestedBy` / `presenceAttestedAt = new Date(at).toISOString()`. A record without a recorded tap gets **no** stamp (the v5→v6 migration is a version bump with no backfill); times are never invented. New test: an exported 3.0.0 bundle re-imported via the UI exports exactly the recorded ms as ISO.
+- **3. "provisional, see ISS-0020" now comes from `checklist.json`:** a panel is provisional when its `panelType` is `vendor` and `areas` has more than one entry. That is the same rule as `tools/gates.shared_vendor_panel`, which `seed_import.py` uses. The hard-coded regex list in `schema-map.js` is gone (`sharedVendorPanels()`, `isProvisionalPanel()`, `provisionalPanelLabels()`). Matching covers the label, the panelId, the label without "(A-I)", the sub-panels (MCP-50A…I, also written MCP-50-A) and leading zeros (MCP-1). The report's "Shared vendor panels (…)" line is built from the same list. **No behaviour change for the current checklist:** the tests compare it with the 3.7.1 list over 87 label variants, all 56 panel stops and all 56 exported ControlPanels, and check the set equals `gates.shared_vendor_panel` over both the app and system checklist.json. A further test edits the checklist in memory: a new 2-area vendor panel gets the marker, MCP-89 cut to 1 area loses it, and a multi-area conveyor panel does not get it.
+- README: new *User manual (quick start)*; §2–4 and §8 rewritten for 3.7.2 (store schema 6, Analyst 3.1.0, current exports and limits).
+- App 3.7.2, SW cache `sv-3.7.2` (installed phones: open online, close, reopen). The SW update test now reads the current version instead of a fixed string. test_v3.py 192/192; validate.py 3.1.0 VALID.
 
 ### v3.7.1 (2026-10-25) - Fix overlapping pills on the Screen page
 - **Bug (seen on a phone on the live site):** on a Screen record, the *Navigates to* and *Equipment types* pills overlapped and the labels were unreadable. Cause: `.chips` was a flex row with no wrap and `.chip` was `white-space:nowrap`; the 3.5.0 long-text rule `label{min-width:0}` then let each `label.chip` shrink below its text, so the text spilled over its neighbours. The more pills a group had, the worse it got (*Opto groups* has only 7 short ones).
@@ -105,7 +144,7 @@ Implements the schema-independent items from `REVIEW-v1.md` §4. The Analyst's s
 
 | # | Item | v1 state | v2 change |
 |---|---|---|---|
-| 1 | **Photo storage** | Blobs were already in IndexedDB at full camera resolution (3–12 MB each); persist was requested only from a button | Photos are **compressed on capture**: canvas, 1600 px long edge, JPEG q0.7. A 4000×3000 test photo goes from 742 KB to 118 KB. The original is kept if compression would not make it smaller. **Videos are stored as-is.** Each item records `origSize`, `width`, `height` and `compressed`. `navigator.storage.persist()` is requested when a visit is created. The storage status (persisted or not, MB used and available) shows on Home, Dashboard, Export and Setup. localStorage holds only small `sv-*` prefs (theme, text size, author). |
+| 1 | **Photo storage** | Blobs were already in IndexedDB at full camera resolution (3–12 MB each); persist was requested only from a button | Photos are **compressed on capture**: canvas, 1600 px long edge (1400 px since 3.7.3), JPEG q0.7. A 4000×3000 test photo goes from 742 KB to 118 KB. The original is kept if compression would not make it smaller. **Videos are stored as-is.** Each item records `origSize`, `width`, `height` and `compressed`. `navigator.storage.persist()` is requested when a visit is created. The storage status (persisted or not, MB used and available) shows on Home, Dashboard, Export and Setup. localStorage holds only small `sv-*` prefs (theme, text size, author). |
 | 2 | **Offline** | Manifest and cache-first SW existed and an offline reload passed | `manifest.id` added. The SW cache is bumped to `sv-2.0.0`, includes `schema-map.js`, and installs with `cache:'reload'` so it never caches stale HTTP-cached files. Fixed a router race that could drop a navigation landing mid-render. Tested: offline deep-link reload, offline capture and offline export. |
 | 3 | **Backup** | Manual export only | After a stop or panel is marked **complete**, a **one-tap backup** runs. The mode is set per visit (Export → *After an area / panel is marked complete*): **Prompt** (default; a modal offers *Backup ZIP now*, *Share ZIP* on mobile, or *Quick JSON*), **Auto-download ZIP**, or **Off**. The Dashboard shows *Last backup … · N changes since*, with a 📦 button. |
 | 4 | **Clone** | None | **📑 Clone section** on a stop copies its checklist, shot list, required flags, photo types, group, ISA area and tag segment under a new name. The name is auto-incremented (`PLC panel: MCP-20` → `MCP-21`). No answers, notes, photos or records are copied. **📑 Clone (new ID)** on a record copies every field and changes only the ID field (`MDR-101` → `MDR-102`). Per-instance fields are cleared (serial, IP, PLC address, source bit) and the status is reset to Open. |
@@ -150,131 +189,79 @@ A phone needs **HTTPS** to register the service worker and install the app. `htt
 3. Launch it from the launcher. It works offline after the first load.
 4. Tap **Request persistent storage** (Setup → Storage) if the storage line shows ⚠️.
 
-**Updating:** when a new version is deployed, `sw.js` `VERSION` is bumped (currently `sv-2.0.0`). A *“App updated – offline cache refreshed ✓”* toast appears when the new worker takes over. The app picks it up on the next online launch; close and reopen it if needed. Data in IndexedDB is not touched by updates.
+**Updating:** each deploy bumps `sw.js` `VERSION` (currently `sv-3.7.3`). The service worker caches the app shell cache-first. The new worker installs on the next **online** launch, skips waiting and takes over, and the toast says *"App updated ✓ - close and reopen the app to use the new version"*. The page already open keeps the old code until you close and reopen the app (2 launches). Updates never touch the IndexedDB data.
 
 ---
 
 ## 2. Using it on site
 
-1. **Home → New visit.** The form is prefilled for *WinCo Foods Distribution Center – Ellensburg, WA*. Enter **Your name on this device**, which is stamped on everything you create or change as `createdBy`/`updatedBy`. Each phone should use its own name. Check the **site code** (`ELL01`). Day 1 is today; use **+ New day** each morning.
-2. **Stops** are grouped as Overall, Cold zones, Docks, Conveyor/MHE, Controls and Utilities. Add more from the dashboard: **+ Conveyor stage**, **+ PLC panel** (e.g. `PLC panel: MCP-20`), or **+ Cooler zone**.
-3. **On a stop or panel:**
-   * The top card shows the status pill, the **ISA-95 tag path** for the stop, progress (checklist, shots, *required photos n/6*) and these buttons:
-     * **✔ Mark panel/area complete:** runs the completion gate, then the backup prompt.
-     * **📑 Clone section:** the next panel, same lists.
-     * **✎ Edit lists.**
-   * **Shot list:** each prompt has a photo type. **🔴 REQUIRED** prompts cannot be skipped, except where N/A is allowed. In edit mode you can change the type or the required flag per shot.
-   * **Extra / freeform:** pick a photo type (default *Overview*), then 📷 / 🎥 / 📁.
-   * **Checklist:** ✓ Done / N/A / ⚠ Issue, with a note and 🎤. Issues go to the Issue Log.
-   * **Records:** add Equipment, PLC/controller, Tag, Alarm, Gap/issue, Operator requirement or Observation.
-     * **✔ Mark verified** is available once the required fields `*` are filled. **N/A** and **Reopen** are also available.
-     * **📑 Clone (new ID)** gives you the next MDR zone, sensor or alarm in two taps.
-4. **Backups:** with the default *Prompt* mode, completing a panel asks **📦 Backup ZIP now** (one tap). Copy the ZIPs off the phone (Files / OneDrive / AirDrop) at least daily.
-5. **Voice notes:** tap **🎤** next to any note and speak. Tap again (or pause) to stop. If the tip says the browser has no voice typing, tap the note box and use the keyboard's own 🎤. That works offline on iOS 15+ with on-device dictation, and on Android with Gboard's offline language pack.
+1. **Home → ➕ New visit.** This is prefilled for WinCo Foods Ellensburg. Fill in the visit name, the **site code** (shown *TO CONFIRM* until confirmed), the trip (Trip1…), dates and visitors. **Your name** is stamped on everything as `createdBy`/`updatedBy` and gives the photo initials. The **ID code for this device** (2–4 letters plus an optional digit, e.g. `JR`, `JR2`) prefixes every ID (`ISS-JR-0001`, `MED-JR-0001`), and each phone needs its own. Capture mode is `quick` or `full`. The visit is seeded from Analyst `checklist.json` 3.1.0: site-wide sections, the areas, **56 control panels** and the seed screens.
+2. **Stops tab (dashboard):**
+   * the backup bar (*💾 Back up now* / *Full backup*);
+   * the day picker and day notes (add a day in Setup → 📅 Days);
+   * **Jump to panel** (label or CP number);
+   * search;
+   * the stops grouped *Site-wide*, *Areas*, per area, *Multi-area* (and *Legacy* for v1/v2 imports). Each stop card shows its status, items done, required photos, blocked items and open issues;
+   * **Panel found on site** adds a panel that isn't in the checklist (label, type, areas served);
+   * buttons for the Navigation matrix and new records.
+3. **A stop:**
+   * **Header:** status, ID/type/areas for a panel, the Sub-System fallback (with *provisional, see ISS-0020* on shared vendor panels, see §8), progress, **✔ Verify & complete** (runs the gate and lists what is missing), and *N/A whole stop*.
+   * **📷 Photos:** the shot list from the checklist; 🔴 required shots gate the stop. Each shot has 📷 / 🎥 / 📁, and N/A only where the photo type allows it. The floating 📷 takes the next required photo.
+   * **☑️ Checklist:** items for the visit's trip. Each is ✓ Done / N/A / ⛔ Blocked, with its fields, questions and a note (with 🎤). Items for other trips are listed but don't gate. *Done* checks the required fields.
+   * **⚙️ Sections (panels):** one record per conveyor section/device: conveyor number, equipment type, drive type, instance ID (derived, e.g. `MDR-20950`) and **presence on site** (yes/no, stamped with who/when). Use **+ Section**, **+ Next** (next conveyor number), **CSV seed import** and **Verify selected**. The statuses are `open → walkdown_verified → data_verified → verified` or `na`. **⛔ Blocked** offers to log an *Access constraint: {instanceId}* issue (category gap, linked to section and panel). It never creates a second one while one is Open/InProgress.
+   * **📋 Records here** and **📝 Stop notes**.
+4. **Records tab:** every record by type: Section/device, Tag, Alarm, Screen (nav matrix), Issue, Observation, Interview. You can filter by panel or search, and add new ones. A record shows its fields (`*` = required for verify), status, media and clone. Screens hold *Navigates to*, *Opto groups* and *Equipment types* pills. **🧭 Navigation matrix** is a from/to grid of the screens with a parent per row.
+5. **Media tab:** all photos and videos with their fixed file names. You can edit the caption and photo type, mark a photo **Sensitive** (IPs/network labels, kept out of shared exports unless allowed), open its record, or delete it.
+6. **Setup tab:** the visit fields (trip, capture mode, dates, visitors, your name, the device ID code, **Attach GPS to photos**), the **🏭 Site registry** (site code, tag provider/enterprise/OptoWes root), **📅 Days** (+ New day each morning), Storage (request persistent), Help / Field rules, and Display (◐ dark/daylight, A+ bigger text).
+7. **Backups:** when a stop is verified the app asks to back up (mode *Ask me* / *Do nothing* on Export). An **incremental** backup is all data plus the media new since the last *confirmed* backup. A **full** backup has everything. A backup counts as done only after the Share completes or you confirm the download. See the quick start for the daily routine and merging a second phone.
+8. **Voice notes:** tap **🎤** next to a note. If the browser has no speech API, use the keyboard's own 🎤 (on-device dictation works offline on iOS/Gboard).
 
 ---
 
-## 3. Exports
+## 3. Exports (Export tab)
 
 | Button | File | Contents |
 |---|---|---|
-| Full ZIP / Backup ZIP | `<site>_<date>_full.zip` / `_backup_<time>.zip` | `visit.json`, the 4 CSVs in `csv/`, `reports/visit-report.{html,md}`, `reports/daily-<date>.{html,md}`, and `media/<TagPathKey>_<Type>_<NN>.<ext>` |
-| JSON (media referenced) | `<site>_<date>.json` | Full data dump, `schemaVersion: 2`, `csvColumns`, and `derived.{tagMapping, alarmMapping, equipment, issues, udts, screens}` |
-| JSON + base64 media | `..._with-media.json` | One self-contained file |
-| Media-only ZIP | `..._media.zip` | Typed photo and video files |
-| **Tag Mapping Matrix** | `..._tag-mapping-matrix.csv` | see below |
-| **Alarm Mapping Matrix** | `..._alarm-mapping-matrix.csv` | see below |
-| **Equipment Inventory** | `..._equipment-inventory.csv` | see below |
-| **Issue Log** | `..._issue-log.csv` | see below |
-| Daily summary / Total visit report | HTML (printable) / Markdown | The visit report adds an Issue Log, Tag Mapping Matrix and Alarm Mapping Matrix, and shows required-photo coverage |
+| 💾 Incremental backup / 📦 Full backup | `<visit>_backup<NNN>_<incremental\|full>_<yyyymmdd-hhmm>.zip` | `visit.json` (all data, Analyst doc included), `analyst/capture.json`, the media (full: all; incremental: new since the last confirmed backup). Restore = full first, then each incremental in order |
+| ⬇ Download package / 📤 Share package | `<base>_package.zip` | Deliverable: `visit.json`, `analyst/capture.json` (Analyst schema **3.1.0**), the **5 Analyst CSVs** in `csv/`, the visit report (.html/.md), a daily report per day and all media in `media/` |
+| Analyst CSVs | `tag-mapping-matrix.csv`, `alarm-mapping-matrix.csv`, `device-inventory.csv`, `navigation-matrix.csv`, `issue-log.csv` | Headers byte-for-byte equal to `analyst/v3.1.0/exports/*.csv` (checked by the tests) |
+| { } Analyst capture JSON | `<base>_analyst-capture.json` | The Analyst 3.1.0 document: `schemaVersion, site, visits, areas, controlPanels, subSystems, equipment, inventoryCounts, commPaths, tags, alarms, screens, issues, media, observations, interviews, checklistResponses, …`. It passes `tools/validate.py` |
+| { } App JSON (media referenced) | `<base>.json` | Internal dump: `format: site-visit-pwa`, `schemaVersion: 6`, `appVersion`, `analystSchema`, visit/days/stops/records/media (files referenced as `media/<name>`), plus `analyst` and `exportWarnings` |
+| Reports | Daily (print) / Daily .md; Visit report (print) / .html / .md | Progress, sections, device inventory (with the ISS-0020 marker), issue log, tag/alarm matrices, navigation matrix, photo coverage |
+| 📥 Import JSON / ZIP | - | Restore or merge (see below) |
 
-CSVs are UTF-8 with a BOM, for Excel. **Column order and headers come from `CSV_COLUMNS` in `js/schema-map.js`.**
-
-**Tag Mapping Matrix** (`csv/tag-mapping-matrix.csv`)
-`OptoWesPath, ISA95Path, PLCAddress, DataType, UDT, TagGroup, Area, LineOrCell, Equipment, Instance, Point, Units, EngLow, EngHigh, Access, PLC_CP, Protocol, Description, Source, Status, RecordUUID`
-
-Rows come from four sources:
-* captured Tag records;
-* **PackML** members (`Status/StateCurrent`, `Command/…`, `Admin/…`) for each MHE equipment record, or UDT hints for non-MHE equipment;
-* "data points" typed in the field;
-* per-PLC-panel `HMI_STATUS_CP##[$]`, `HMI_ALARM_CP##[$]` and comms rows.
-
-`Source` names each row's origin: *Captured tag*, *PackML required member (SUP §2)*, *UDT hint (inferred)*, *Field note (…)*, *CP status/alarm array (to confirm)*, *System comms (SUP §1.5)*.
-
-**Alarm Mapping Matrix** (`csv/alarm-mapping-matrix.csv`)
-`CP, DeviceID, AlarmCode, Description, Priority, SourceBit, AlarmOrStatus, TagPath, Condition, Setpoint, Delay_s, Notification, Area, Source, Status, RecordUUID`
-
-Rows come from captured Alarm records, tag records with an alarm, field notes, and *Suggested* Design §7.4 defaults (E-Stop P1, Fault P1, Jam P2, Full P3) per MHE equipment and panel. Suggested rows are for review.
-
-**Equipment Inventory** (`csv/equipment-inventory.csv`)
-`RecordKind, Area, LineOrCell, CP, EquipmentType, InstanceID, Name, Manufacturer, Model, Serial, Firmware, IP, Protocol, UDT, OptoWesPath, ISA95Path, Stop, Status, MissingRequired, PhotoFiles, Notes, Author, CreatedAt, UpdatedAt, RecordUUID`
-
-It contains one row per Equipment record and one per PLC/controller record.
-
-**Issue Log** (`csv/issue-log.csv`)
-`IssueID, DateRaised, Area, Stop, Category, Title, Description, Severity, Status, Owner, DueDate, RecommendedAction, Resolution, RaisedBy, Source, PhotoFiles, UpdatedAt, RecordUUID`
-
-It contains Gap/issue records plus every checklist item marked ⚠ Issue. IDs are `ISS-001…` in date order.
-
-**Import / restore** (Home → Import) accepts a full or backup ZIP, a base64 JSON, or a plain JSON, from **v1 or v2**. v1 files are upgraded on import (a toast says *upgraded v1 → v2*). If the visit already exists you choose **Replace** or **Import as a copy**.
+* **Analyst 3.1.0 checks card:** shows unresolved references (panel/Sub-System/area), schema errors, gate/status errors and warnings, using the same rules as `validate.py` / `gates.py`.
+  * Exports with errors ask *Cancel - fix first / Export anyway*.
+  * The same device or screen recorded twice **blocks** the export until the two are merged.
+  * Blocked sections without an access issue get a soft nudge.
+* **Attestation (3.1.0):** a section whose `presentOnSite` is yes/no exports `presenceAttestedBy` + `presenceAttestedAt` (ISO UTC) from the recorded tap, both or neither. A missing or malformed tap emits nothing and adds an advisory warning.
+* **Sensitive values** (IPs, *Sensitive* photos) are left out of shared exports unless *Include sensitive values* is ticked.
+* CSVs are UTF-8 with a BOM, for Excel. Column order comes from `analyst/v3.1.0/exports` via `js/analyst-schema.js`.
+* **Import:** accepts a backup/package ZIP or JSON from any app version (v1–v6 store schemas; Analyst 2.0.0/2.1.0/3.0.0/3.1.0). Older files are upgraded on load: v1/v2 → v3 → v4 → v5 → v6, where the last step changes version strings only. If the visit already exists the choices are **Merge (keep both sides)** (recommended), *Import as copy*, or *Replace* (a damaged device copy only; staged and swapped in one transaction). ID counters never roll back. Each import is recorded in the **📜 Import log** with its conflicts and renumbered IDs.
 
 ### Tag paths (SUP §1.5)
-* ISA-95: `[provider]Enterprise/Site/Area/LineOrCell/Equipment/Instance/Point`, e.g. `[default]KPI/ELL01/Ambient/Spiral01/MDR/MDR-101/Status/StateCurrent`.
-* PLC panels: `[default]KPI/ELL01/_System/MCP-20/…`.
+* ISA-95: `[tagProvider]enterprise/siteCode/area/lineOrCell/equipmentType/instanceId/folder/point`, e.g. `[default]KPI/ELL01/Ambient/CP-020/MDRZone/MDR-20101/Status/StateCurrent`.
 * OptoWes view: `[default]OptoWes/MHE/<Instance>/<Point>`.
-
-Area and LineOrCell come from each stop's ⚙️ Stop settings (*ISA-95 Area*, *LineOrCell*), with a default derived from the stop kind and name. The provider, enterprise, site code and OptoWes root are set in **Setup → Tag model**.
+* The provider, enterprise, site code and OptoWes root are set in **Setup → 🏭 Site registry**, which shows a live example path. Paths that don't match the Analyst patterns are left out with a warning.
 
 ---
 
-## 4. Data model (`schemaVersion: 2`)
+## 4. Data model (store `schemaVersion: 6`, Analyst 3.1.0)
 
-IndexedDB `site-visit-pwa` (DB v1, unchanged) has the stores `visits`, `days`, `stops`, `records` and `media`, each with a `visitId` index. Photos and videos are **Blobs** inside `media`. IDs are UUIDs. Times are epoch ms (ISO in CSVs and reports).
+IndexedDB `site-visit-pwa` (DB version 2) has the stores `visits`, `days`, `stops`, `records` and `media`, each with a `visitId` index, plus `staging` (a Replace import is staged there and swapped in one transaction). Photos and videos are **Blobs** in `media`. Internal IDs are UUIDs; the human IDs are `<KIND>-<devcode>-NNNN`. Times are epoch ms internally and ISO UTC in exports. Every entity has `id, createdAt, updatedAt, createdBy, updatedBy`.
 
-```jsonc
-{ "format": "site-visit-pwa", "schemaVersion": 2, "appVersion": "2.0.0", "exportedAt": "ISO", "mediaEmbedded": false,
-  "csvColumns": { "tagMapping": [...], ... },
-  "visit": {...}, "days": [...], "stops": [...], "records": [...], "media": [...],
-  "derived": { "tagMapping": [...], "alarmMapping": [...], "equipment": [...], "issues": [...], "udts": [...], "screens": [...] } }
-```
-
-Common to every entity: `id, createdAt, updatedAt, createdBy, updatedBy`.
-
-| Entity | Fields (v2 additions in **bold**) |
+| Entity | Main fields |
 |---|---|
-| **visit** | `site, client, address, startDate, endDate, visitors[], gps, activeDayId, lastStopId`, **`schemaVersion, tagModel{provider,enterprise,siteCode,optoRoot}, backupMode (prompt\|auto\|off), lastBackupAt, migratedFrom`** |
+| **visit** | `name, trip, startDate, endDate, visitors[], site{…}, tagModel, captureMode, gps, backupMode, backup{lastAt, seq}, hwm, shareSensitive, importLog[], schemaVersion (6), analystSchema ('3.1.0'), migratedFrom` |
 | **day** | `visitId, date, label, notes` |
-| **stop** | `visitId, kind, name, group, tagSegment, setpoint, order, checklist[{id,text,status,note,dayId,updatedAt}], shots[{id,text,na,`**`type, req, naOk`**`}], prompts{}, ign{}`, **`status (open\|complete\|na), isa{area,line}, completedAt, completedBy, clonedFrom`** |
-| **record** | `visitId, dayId, stopId, type, f{…}, ign{}`, **`status (open\|verified\|na), verifiedAt, verifiedBy, clonedFrom`** |
-| **media** | `visitId, dayId, stopId, shotId, recordId, kind, mime, name, size, thumb, note, tags[], gps`, **`photoType, origSize, origMime, width, height, compressed, takenAt`**, `blob` → `file` / `dataBase64` |
+| **stop** | `visitId, kind (site\|area\|panel\|legacy), key, name, group, order, areaCodes[], items[], resp{itemId:{state todo\|done\|na\|blocked, a{}, q{}, note}}, shots[], recordStatus, notes`; panels add `panel{label, idNorm, type, vendorSystems, flags, subPanels, expected, subSystemIds, primarySubSystemId}` |
+| **record** | `visitId, dayId, stopId, type (section\|tag\|alarm\|screen\|issue\|observation\|interview), bid, f{…}, recordStatus (open\|walkdown_verified\|data_verified\|verified\|na), attest.presentOnSite{by, at}, subFallback, seedSource` |
+| **media** | `visitId, dayId, stopId, shotId, recordId, kind, mime, filename, seq, uuid, size, photoType, note, sensitive, gps{lat, lon, acc}, crc, blob` |
 
-Record fields (`*` = required for **Verified**):
-
-| type | fields |
-|---|---|
-| `equipment` | equipId\*, name\*, type\* (… MDR Zone, Spiral, Elevator, Pallet Conveyor, DWS, Print & Apply, ASRS, Robotics Cell), manufacturer, model, serial, plc, sensors, nameplate, notes |
-| `plc` | name\*, make\*, model\*, firmware, ip\*, protocol, path, program, notes |
-| `tag` | point\*, equipRef, plcRef, address\*, dataType\*, **tagGroup**, units, rangeLo, rangeHi, rw, description, alarmCondition, alarmSetpoint, alarmPriority |
-| `alarm` | **cp\*, deviceId\*, alarmCode\*, description\*, priority\* (P1/P2/P3/Diagnostic), sourceBit, classification**, tagPath, condition, setpoint, delay, notification, notes |
-| `gap` | title\*, **category**, severity\*, description\*, recommendedAction, owner, **dueDate**, status, **resolution** |
-| `operator` | role\*, need\*, screen, priority, frequency, notes |
-| `observation` | title\*, category, description\* |
-
-### 4.3 Remapping when the Analyst schema lands
-**`js/schema-map.js`** is the single place to edit:
-
-| Constant | Controls |
-|---|---|
-| `CSV_COLUMNS` | header/key per CSV; reorder, rename or drop columns |
-| `REQUIRED_FIELDS` | the verify gate per record type |
-| `PHOTO_TYPES`, `PANEL_SHOT_SET`, `PANEL_KINDS` | photo types, filename tokens, the required panel photo set and which stop kinds use it |
-| `TAG_MODEL_DEFAULTS`, `ISA_AREAS`, `stopArea()`, `stopLine()`, `isaPath()`, `optoPath()` | tag paths |
-| `TAG_GROUPS`, `PACKML_MEMBERS`, `MHE_TYPES`, `UDT_FOR_TYPE`, `DATA_TYPE_FOR_MEMBER` | tag matrix rows |
-| `ALARM_CODES`, `ALARM_PRIORITIES`, `V1_PRIORITY_MAP` | alarm philosophy |
-| `STATUS`, `STOP_STATUS`, `CLONE_ID_FIELD`, `CLONE_CLEAR` | statuses and clone behaviour |
-| `migrateBundle()` | upgrades older files. Add a `v2 → v3` step here and bump `SCHEMA_VERSION` in `templates.js`. |
-
-Checklists, shot lists and record field specs stay in `js/templates.js`. After editing, run `python3 build-single.py`, bump `VERSION` in `sw.js` and run the tests.
+* **Field specs and gates** come from the Analyst bundle (`analyst/v3.1.0/`), compiled into `js/analyst-schema.js` by `tools/gen_analyst.py`.
+* **Mapping** to the Analyst document lives in `js/schema-map.js`: instance IDs, the Sub-System fallback, `PROVISIONAL_SUBSYSTEM`, the access-issue template, the attestation map and media file names.
+* **Migrations** live in `js/migrations.js`; the gate rules are in `gates.js` (a port of `tools/gates.py`).
+* **Changing the schema:** after editing, run `python3 build-single.py`, bump `APP_VERSION` (`js/templates.js`) and `VERSION` (`sw.js`), and run the tests.
 
 ---
 
@@ -284,7 +271,7 @@ Checklists, shot lists and record field specs stay in `js/templates.js`. After e
 index.html             app shell (classic scripts: schema-map → templates → db → zip → exports → app)
 styles.css             dark + daylight themes, 60 px targets
 manifest.webmanifest   PWA manifest (id, standalone, icons 192/512/maskable)
-sw.js                  service worker – cache-first app shell, VERSION sv-3.0.1
+sw.js                  service worker – cache-first app shell, VERSION sv-3.7.3
 js/schema-map.js       ← remappable schema: CSV columns, required fields, photo types, tag model, alarm codes, v1→v2 migration
 js/templates.js        schema/app version, stop kinds, default stops, checklists, shot lists, record field specs
 js/db.js               IndexedDB helpers
@@ -293,7 +280,7 @@ js/exports.js          tag/alarm/equipment/issue rows, completion gate, typed me
 js/app.js              UI, routing, autosave, capture + compression, dictation, backup, clone, import/export
 site-visit.html        single-file build (generated by build-single.py)
 tests/test_v3.py       Playwright test for 3.1.0 + Reviewer fixes (114 checks); tests/test_v2.py (legacy v2 suite, no longer maintained - do not run, it clears screenshots/);
-analyst/v3.0.0/        Analyst canonical schema, checklist.json, exports/*.csv, tools/validate.py; tools/gen_analyst.py regenerates js/analyst-schema.js
+analyst/v3.1.0/        Analyst canonical schema, checklist.json, exports/*.csv, tools/validate.py; tools/gen_analyst.py regenerates js/analyst-schema.js
                        tests/fixtures (v1 exports, 4000×3000 JPEG, video)
 screenshots/           25 v3.7.1 Screen-page pills; 01–11 v2 run; 12–15 v3.2.0 (attest, export checks, ref-error prompt, import confirm)
 ```
@@ -306,14 +293,16 @@ screenshots/           25 v3.7.1 Screen-page pills; 01–11 v2 run; 12–15 v3.2
 
 ```bash
 pip install playwright && playwright install chromium
-python3 tests/test_v3.py     # :8797. Must-fixes MF1–MF6, 3.0.0 attest/gates, seed import, refs, nav matrix, CSV byte-match, IDs, validate.py, upgrades. 54/54 pass
+python3 tests/test_v3.py     # :8797 (+ :8798 for the SW update check). 3.7.3: 213/213 pass (includes the 21 photo-capture checks from tests/test_capture.py), including validate.py 3.1.0 VALID on the app exports
+python3 tests/test_capture.py [URL]  # :8799 or a live URL - low-memory capture checks only (3.7.3)
+python3 tests/mem_probe.py OLD_DIR NEW_DIR  # peak renderer memory for one 48 MP photo, old build vs new (Chromium + WebKit)
 python3 tests/test_v2.py     # starts its own server on :8771, writes tests/out/ and screenshots/
 ```
 
-Headless Chromium at 390×844 with touch. **70/70 checks pass with no console errors.** Coverage:
+Headless Chromium at 390×844 with touch, no page errors. The list below is the original v2 coverage; test_v3.py now covers every changelog entry in §0. Coverage:
 * **Install and offline:** SW control, manifest `id`, SW cache contents.
 * **Storage:** persist/usage status; localStorage holds only small prefs.
-* **Photos:** a 4000×3000 JPEG is compressed to 1600×1200 JPEG (742 KB → 118 KB) and stored as a Blob in IDB; video is stored unchanged.
+* **Photos:** a 4000×3000 JPEG is compressed to 1400×1050 JPEG (742 KB → 102 KB) and stored as a Blob in IDB; video is stored unchanged.
 * **PLC panel gate:**
   * blocked on 6 required photos;
   * then blocked on the checklist only;
@@ -333,19 +322,17 @@ Headless Chromium at 390×844 with touch. **70/70 checks pass with no console er
 
 The v1 suite (35 checks) lives with the v1 build at `/workspace/svtest/test.py`.
 
-## 8. Known limits / depends on the Analyst schema
+## 8. Known limits (3.7.3)
 
-* **Analyst-dependent** (REVIEW §1–3), not done here. Each one is a `schema-map.js` / `templates.js` edit:
-  * confirm the tag model (site code `ELL01`, Area/LineOrCell naming);
-  * restructure the checklists;
-  * pre-seed the 69 panels (20 conveyor MCPs + 49 vendor panels) as stops;
-  * Navigation Matrix capture;
-  * the final Alarm Philosophy priorities;
-  * the status-word index inconsistency (11–13 vs 16) between source docs;
-  * the final CSV column names.
-* **Not verified on real devices:** airplane mode on an installed iPhone/Android, and glove use at −10 °F. The tests use Chromium's offline emulation.
-* **Web Speech limits:**
-  * Chrome's recognizer sends audio to a server, so 🎤 does nothing in airplane mode. The keyboard's on-device dictation still works.
-  * iOS Safari supports `webkitSpeechRecognition` but is unreliable in home-screen (standalone) mode, which is why the fallback tip exists.
-* **Persistent storage** is a browser decision. Chrome usually grants it to installed or bookmarked sites; Safari grants it only to home-screen apps. The UI shows the real state.
-* Videos are not compressed (by design), so keep clips short.
+* **Open Analyst items, held in data rather than code:**
+  * **ISS-0020:** the Sub-System/Area of shared vendor panels is provisional. Sections on vendor panels with more than one area in `checklist.json` (currently MCP-01, MCP-02, MCP-50(A-I), MOVU-ASTC, MCP-89, MCP-90) use the panel's primary Sub-System and are marked *provisional, see ISS-0020* in the app, the exports (notes + `sourceRefs` review/ISS-0020) and the report. When the checklist changes, the marker follows with no code change.
+  * The **status-word encoding** per panel is not released (`STATUS_ENCODING`, from `statusEncodings`).
+  * The **site code** shows *TO CONFIRM* until it is confirmed in `SITE_DEFAULTS`.
+* **Updates need 2 launches:** the new service worker takes over on the first online launch, and the new code runs after you close and reopen. An app opened offline keeps the cached version.
+* **Single file (`site-visit.html`):** for a laptop only. It has no service worker or offline cache and cannot be installed, its data is tied to that file path and browser profile, and iOS can evict it.
+* **Storage:** persistent storage is the browser's decision (Safari grants it only to Home Screen apps). iOS can evict data from apps that go unused, so back up daily. A backup is marked done only after a confirmed share/download.
+* **Two phones don't sync live:** merge by Export → Import → *Merge*. The same device recorded on both phones is flagged as a duplicate and blocks the export until it is merged.
+* **GPS** is best effort, with a 5 s timeout per photo. Indoors there is often no fix and the photo is saved without one.
+* **Not verified on real devices:** airplane mode on an installed iPhone/Android and use with gloves at −10 °F. The tests use headless Chromium at 390×844 with touch and offline emulation.
+* **Web Speech:** Chrome's recognizer needs a network connection. iOS standalone mode is unreliable, so use the keyboard's 🎤 instead.
+* Videos are not compressed, so keep clips short. Photos are re-encoded to 1400 px JPEG q0.7 (1000 px q0.6 / 800 px q0.5 if the phone is short of memory). The browser still has to decode the full camera image once (about 4 bytes per pixel, e.g. 190 MB for 48 MP) - no web app can avoid that; 3.7.3 makes sure it happens only once per photo and one photo at a time.

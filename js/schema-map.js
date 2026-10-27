@@ -85,12 +85,22 @@ const ACCESS_ISSUE = (() => { const h = AS.checklist.uiHints?.blockedAccessIssue
   return { category: EN.issueCategory.includes(h.category) ? h.category : 'gap', priority: h.priority || 'Medium', status: h.status || 'Open', deliverables: h.deliverables || ['DeviceInventory'],
     titlePrefix: 'Access constraint', title: iid => `Access constraint: ${iid}` }; })();
 /* Analyst answer 3: shared vendor panels whose Sub-System / Area assignment is provisional until ISS-0020 closes.
-   Matched on panel label or normalised id; MCP-50 matches MCP-50(A-I), MCP-50A..MCP-50I and any other MCP-50 variant. */
+   3.7.2: driven by checklist.json, same rule as tools/gates.shared_vendor_panel (used by seed_import.py):
+   checklist.panels[] with panelType 'vendor' and more than one entry in areas. Matched on the panel label, panelId (without PNL-),
+   the label without its "(A-I)" suffix and every listed sub-panel (MCP-50A..MCP-50I, also written MCP-50-A); leading zeros
+   in the number are ignored (MCP-1 = MCP-01). Read live from the checklist on every call, so a new checklist needs no code change. */
 const PROVISIONAL_SUBSYSTEM = { issueId: 'ISS-0020', marker: 'provisional, see ISS-0020',
-  sourceRef: AS.checklist.uiHints?.provisionalSubSystem?.sourceRef || { doc: 'review', section: 'ISS-0020', detail: 'subSystemFallback=panelPrimary' },
-  patterns: [/^MCP-0?1$/, /^MCP-0?2$/, /^MOVU-ASTC$/, /^MCP-50(?!\d)/, /^MCP-89$/, /^MCP-90$/] };
-const isProvisionalPanel = p => { if (!p) return false; const c = [p.label, p.panelLabel, p.idNorm, String(p.panelId || p.id || '').replace(/^PNL-/, '')].filter(Boolean).map(x => String(x).toUpperCase().replace(/\s+/g, ''));
-  return c.some(x => PROVISIONAL_SUBSYSTEM.patterns.some(rx => rx.test(x))); };
+  sourceRef: AS.checklist.uiHints?.provisionalSubSystem?.sourceRef || { doc: 'review', section: 'ISS-0020', detail: 'subSystemFallback=panelPrimary' } };
+const sharedVendorPanels = () => (AS.checklist.panels || []).filter(p => p.panelType === 'vendor' && (p.areas || []).length > 1);
+const provKey = x => String(x || '').toUpperCase().replace(/\s+/g, '').replace(/^PNL-/, '').replace(/-0+(?=\d)/g, '-');
+const provKeys = () => { const k = new Set();
+  for (const p of sharedVendorPanels()) { const base = String(p.panelLabel || '').replace(/\(.*\)$/, '');
+    [p.panelLabel, p.panelId, base].forEach(x => x && k.add(provKey(x)));
+    for (const sp of p.subPanels || []) { k.add(provKey(sp)); const m = String(sp).match(/^(.*\d)([A-Z])$/i); if (m) k.add(provKey(m[1] + '-' + m[2])); } }
+  k.delete(''); return k; };
+const provisionalPanelLabels = () => sharedVendorPanels().map(p => p.panelLabel);
+const isProvisionalPanel = p => { if (!p) return false; const K = provKeys();
+  return [p.label, p.panelLabel, p.panelId || p.id].filter(Boolean).some(x => K.has(provKey(x))); };
 /* 3.1.0 (additive, coming): presenceAttestedBy / presenceAttestedAt. The app stores r.attest.presentOnSite = { by, at(ms) };
    this map is the rename. 3.1.0: ON - emitted (both or neither, ISO UTC) whenever the exported presentOnSite is yes/no and the schema defines them. */
 const ATTEST_EXPORT_MAP = { presentOnSite: { by: 'presenceAttestedBy', at: 'presenceAttestedAt' } };

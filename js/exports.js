@@ -329,7 +329,7 @@ function buildAnalystDoc(B, { sensitive = false } = {}) {
     D.media.push(clean({ id: m.bid, sync: sync(m), recordStatus: 'open', trips: trips(), notes: m.note || undefined, filename: m.filename, kind: EN.mediaKind.includes(m.kind) ? m.kind : 'photo', photoType: EN.photoType.includes(m.photoType) ? m.photoType : 'other',
       capturedAt: iso(m.capturedAt || m.createdAt), areaId: st?.kind === 'area' ? 'AREA-' + st.key : st?.kind === 'panel' ? cpById[pnlId.get(st.id)]?.primaryAreaId : undefined, panelId: st?.kind === 'panel' && !rec ? pnlId.get(st.id) : undefined,   /* record media link via equipmentId / mediaIds only, so a section nameplate never satisfies the panel's nameplate (gates.py _media_types) */
       equipmentId: rec?.type === 'section' ? eqId.get(rec.id) : undefined, caption: m.caption || undefined, sensitive: !!m.sensitive,
-      storage: clean({ blobKey: m.id, mimeType: m.mime, bytes: m.size, maxEdgePx: m.compressed ? PHOTO_MAX : undefined, jpegQuality: m.compressed ? PHOTO_Q : undefined }) }));
+      storage: clean({ blobKey: m.id, mimeType: m.mime, bytes: m.size, maxEdgePx: m.compressed ? (m.maxEdge || PHOTO_MAX_LEGACY) : undefined, jpegQuality: m.compressed ? (m.jpegQ || PHOTO_Q) : undefined }) }));
   }
   D.observations = B.records.filter(r => r.type === 'observation').map(r => clean({ id: r.bid, sync: sync(r), recordStatus: r.recordStatus || 'open', trips: trips(), notes: r.f.notes || undefined, text: r.f.text || '(empty)', observedAt: iso(r.createdAt),
     areaId: areaOf(r.f), panelId: pnlId.get(r.f.panelId), equipmentId: eqId.get(r.f.equipmentId), tags: splitList(r.f.tags), mediaIds: mediaFor(m => m.recordId === r.id) }));
@@ -523,7 +523,7 @@ function visitReport(B) {
     { h: 'Coverage', table: T(['Areas', 'Panels', 'Panels verified', 'Sections', 'Tags', 'Alarms', 'Screens', 'Issues open', 'Media'], [[CK.areas.length, panels.length, panels.filter(s => isVerified(s.recordStatus)).length, doc.equipment.length, doc.tags.length, doc.alarms.length, doc.screens.length, doc.issues.filter(i => !['Closed', 'Deferred'].includes(i.status)).length, B.media.length]]) },
     { h: 'Site registry', table: T(['Field', 'Value'], Object.entries(doc.site).map(([k, x]) => [k, String(x)])) },
     { h: 'Device inventory', table: pick(inv, ['InventoryID', 'RecordType', 'Area', 'ControlPanel', 'SubSystem', 'EquipmentType', 'InstanceID', 'PLCModel', 'RecordStatus']) },
-    ...(prov.length ? [{ h: `Provisional Sub-System (${PROVISIONAL_SUBSYSTEM.issueId})`, text: `Shared vendor panels (MCP-01, MCP-02, MOVU-ASTC, MCP-50(A-I), MCP-89, MCP-90): ${prov.length} section(s) carry the panel's fallback Sub-System because the seed had no SubSystemCode. Treat as ${PROVISIONAL_SUBSYSTEM.marker}.` }] : []),
+    ...(prov.length ? [{ h: `Provisional Sub-System (${PROVISIONAL_SUBSYSTEM.issueId})`, text: `Shared vendor panels (${provisionalPanelLabels().join(', ')}): ${prov.length} section(s) carry the panel's fallback Sub-System because the seed had no SubSystemCode. Treat as ${PROVISIONAL_SUBSYSTEM.marker}.` }] : []),
     { h: 'Tag mapping matrix', table: pick(R['tag-mapping-matrix'], ['TagMapID', 'InstanceID', 'PointFolder', 'Point', 'OptoWesPath', 'PLCAddress', 'TagGroup', 'SourceStatus']) },
     { h: 'Alarm mapping matrix', table: pick(R['alarm-mapping-matrix'], ['AlarmMapID', 'ControlPanel', 'DeviceID', 'AlarmCode', 'PriorityLevel', 'IgnitionPriority', 'AlarmEventDescription']) },
     { h: 'Navigation matrix', table: navMatrix(doc) },

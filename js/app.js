@@ -284,7 +284,7 @@ const bar = pct => `<div class="bar"><i style="width:${pct}%"></i></div>`;
 function sec(key, title, body, openDefault = true) { const open = ui.open[key] ?? openDefault; return `<details data-key="${key}"${open ? ' open' : ''}><summary>${title}</summary><div class="secbody">${open ? body : `<div data-lazy="${key}"></div>`}</div></details>`; }
 const lazy = {};   // closed sections render on first open (keeps big panels light)
 function secL(key, title, fn, openDefault = false) { lazy[key] = fn; const open = ui.open[key] ?? openDefault; return `<details data-key="${key}"${open ? ' open' : ''}><summary>${title}</summary><div class="secbody">${open ? fn() : `<div data-lazy="${key}"></div>`}</div></details>`; }
-const thumbs = list => list.length ? `<div class="thumbs">${list.map(m => `<button class="th" data-act="media" data-id="${m.id}" aria-label="Open ${esc(m.filename || 'media')}">${m.thumb ? `<img src="${m.thumb}" alt="" loading="lazy">` : '<span>▶</span>'}${m.kind === 'video' ? '<b class="vb">VIDEO</b>' : ''}<b class="tb">${esc(PHOTO_TYPE[m.photoType]?.label || '')}</b>${m.blob ? '' : '<b class="vb miss">NO FILE</b>'}</button>`).join('')}</div>` : '';
+const thumbs = list => list.length ? `<div class="thumbs">${list.map(m => `<button class="th" data-act="media" data-id="${m.id}" aria-label="Open ${esc(m.filename || 'media')}">${m.thumb ? `<img src="${m.thumb}" alt="" loading="lazy">` : `<span>${m.kind === 'video' ? '▶' : '🖼'}</span>`}${m.kind === 'video' ? '<b class="vb">VIDEO</b>' : ''}<b class="tb">${esc(PHOTO_TYPE[m.photoType]?.label || '')}</b>${m.blob ? '' : '<b class="vb miss">NO FILE</b>'}</button>`).join('')}</div>` : '';
 const typeOpts = cur => PHOTO_TYPES.map(([k, l]) => opt(k, cur, l)).join('');
 const dataCtx = c => Object.entries(c).map(([k, v]) => `data-${k}="${esc(v || '')}"`).join(' ');
 const capButtons = (c, defType = 'other') => `<div class="capbox"><label class="fld"><span>Photo type (sets the file name)</span><select class="captype" data-change="captype">${typeOpts(defType)}</select></label><div class="row"><button class="btn" data-act="cap" data-kind="photo" ${dataCtx(c)}>📷 Photo</button><button class="btn" data-act="cap" data-kind="video" ${dataCtx(c)}>🎥 Video</button><button class="btn" data-act="cap" data-kind="lib" ${dataCtx(c)}>📁 File</button></div></div>`;
@@ -613,64 +613,195 @@ function getGps() {
   return new Promise(res => { const t = setTimeout(() => res(null), 6000);
     navigator.geolocation.getCurrentPosition(p => { clearTimeout(t); res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, ts: p.timestamp }); }, () => { clearTimeout(t); res(null); }, { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }); });
 }
+/* Video poster thumbnail (videos are never decoded into JS memory - the File/Blob is stored as-is). */
 async function makeThumb(blob, kind) {
-  const url = URL.createObjectURL(blob);
+  if (kind !== 'video') return null;   /* 3.7.3: photo thumbs come from the small canvas in encodePhoto - never a second decode */
+  const url = URL.createObjectURL(blob); let v, c;
   try {
-    const src = await new Promise((res, rej) => { const to = setTimeout(() => rej(new Error('timeout')), 6000);
-      if (kind === 'video') { const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto';
-        v.onloadeddata = () => { v.currentTime = Math.min(0.3, (v.duration || 1) / 2); }; v.onseeked = () => { clearTimeout(to); res(v); }; v.onerror = () => rej(new Error('video')); v.src = url; }
-      else { const i = new Image(); i.onload = () => { clearTimeout(to); res(i); }; i.onerror = () => rej(new Error('img')); i.src = url; } });
-    const w = src.videoWidth || src.naturalWidth, h = src.videoHeight || src.naturalHeight, sc = Math.min(1, 360 / Math.max(w, h));
-    const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * sc)); c.height = Math.max(1, Math.round(h * sc));
-    c.getContext('2d').drawImage(src, 0, 0, c.width, c.height); const out = c.toDataURL('image/jpeg', 0.72); c.width = c.height = 0; return out;
-  } catch (e) { return null; } finally { URL.revokeObjectURL(url); }
+    v = await new Promise((res, rej) => { const to = setTimeout(() => rej(new Error('timeout')), 6000); const e = document.createElement('video'); e.muted = true; e.playsInline = true; e.preload = 'auto';
+      e.onloadeddata = () => { e.currentTime = Math.min(0.3, (e.duration || 1) / 2); }; e.onseeked = () => { clearTimeout(to); res(e); }; e.onerror = () => { clearTimeout(to); rej(new Error('video')); }; e.src = url; });
+    const w = v.videoWidth, h = v.videoHeight, sc = Math.min(1, THUMB_MAX / Math.max(w, h));
+    c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * sc)); c.height = Math.max(1, Math.round(h * sc));
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height); return await canvasThumb(c);
+  } catch (e) { return null; } finally { releaseCanvas(c); if (v) { v.removeAttribute('src'); v.load?.(); } URL.revokeObjectURL(url); }
 }
-/* Photos re-encoded on capture: long edge <= 1600 px, JPEG q0.7. Videos stored as-is. All as IndexedDB Blobs. */
-const PHOTO_MAX = 1600, PHOTO_Q = 0.7;
-async function compressPhoto(file) {
-  if (!/^image\/(jpeg|jpg|png|webp|heic|heif|bmp)$/i.test(file.type || '')) return null;
-  let src, w, h, url;
+/* ================= 3.7.3: low-memory photo capture =================
+   iOS killed the page ("low memory") because 3.7.1 decoded every camera photo at FULL resolution (12-48 MP = 48-190 MB of pixels)
+   before shrinking it. Now: the photo is decoded already downscaled (createImageBitmap resize, feature-detected; else one <img>
+   drawn straight onto ONE target-size canvas), encoded with toBlob (never toDataURL), the thumbnail is cut from that small canvas,
+   only the first 128 KB are read for EXIF, everything is released at once, and captures run strictly one at a time.
+   If decode / encode fails: automatic retry at 1000 px q0.6, then 800 px q0.5; then a "Photo NOT saved" card with Retry and
+   "Save original without compression". Stored media / IDs are never touched. */
+const PHOTO_STEPS = [[1400, 0.7], [1000, 0.6], [800, 0.5]];
+const PHOTO_MAX = PHOTO_STEPS[0][0], PHOTO_Q = PHOTO_STEPS[0][1], PHOTO_MAX_LEGACY = 1600, THUMB_MAX = 360, HEAD_BYTES = 131072;
+const PHOTO_RE = /^image\/(jpeg|jpg|pjpeg|png|webp|heic|heif|bmp|gif|avif)$/i;
+const releaseCanvas = c => { if (c) { c.width = 0; c.height = 0; } };
+const blobToDataURL = b => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(b); });
+async function canvasThumb(src) {   /* small (<=360 px) JPEG data URL from an already-small canvas - format kept for existing media / backups */
+  let t;
+  try { const sc = Math.min(1, THUMB_MAX / Math.max(src.width, src.height)); t = document.createElement('canvas'); t.width = Math.max(1, Math.round(src.width * sc)); t.height = Math.max(1, Math.round(src.height * sc));
+    t.getContext('2d').drawImage(src, 0, 0, t.width, t.height); const b = await new Promise(res => t.toBlob(res, 'image/jpeg', 0.72)); return b ? await blobToDataURL(b) : null;
+  } catch (e) { return null; } finally { releaseCanvas(t); }
+}
+/* Header only (first 128 KB): pixel size, EXIF orientation, EXIF GPS + DateTimeOriginal. Never reads the whole file. */
+async function readImageHead(file) {
+  const o = { w: 0, h: 0, orient: 1, fmt: '' };
+  let dv; try { dv = new DataView(await file.slice(0, HEAD_BYTES).arrayBuffer()); } catch (e) { return o; }
+  const n = dv.byteLength, u8 = i => dv.getUint8(i), u16 = i => dv.getUint16(i), u32 = i => dv.getUint32(i);
   try {
-    if (window.createImageBitmap) src = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file)).catch(() => null);
-    if (src) { w = src.width; h = src.height; }
-    else { url = URL.createObjectURL(file); src = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('decode')); i.src = url; }); w = src.naturalWidth; h = src.naturalHeight; }
-    if (!w || !h) return null;
-    const sc = Math.min(1, PHOTO_MAX / Math.max(w, h)), cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc));
-    const c = document.createElement('canvas'); c.width = cw; c.height = ch; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cw, ch); g.drawImage(src, 0, 0, cw, ch);
-    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', PHOTO_Q)); c.width = c.height = 0;
-    if (!blob) return null;
-    if (sc === 1 && /jpe?g/i.test(file.type) && blob.size >= file.size) return { blob: new Blob([file], { type: 'image/jpeg' }), width: w, height: h, compressed: false };
-    return { blob, width: cw, height: ch, compressed: true };
-  } catch (e) { return null; } finally { src?.close?.(); if (url) URL.revokeObjectURL(url); }
+    if (n > 24 && u32(0) === 0x89504E47) { o.fmt = 'png'; o.w = u32(16); o.h = u32(20); return o; }
+    if (n < 4 || u16(0) !== 0xFFD8) return o;
+    o.fmt = 'jpeg'; let p = 2;
+    while (p + 4 <= n) {
+      if (u8(p) !== 0xFF) break; const mk = u8(p + 1); if (mk === 0xFF) { p++; continue; }
+      if (mk === 0xD8 || mk === 0x01 || (mk >= 0xD0 && mk <= 0xD7)) { p += 2; continue; }
+      const len = u16(p + 2);
+      if (mk === 0xE1 && p + 10 < n && u32(p + 4) === 0x45786966) parseExif(dv, p + 10, Math.min(n, p + 2 + len), o);
+      if (mk >= 0xC0 && mk <= 0xCF && mk !== 0xC4 && mk !== 0xC8 && mk !== 0xCC && p + 9 <= n) { o.h = u16(p + 5); o.w = u16(p + 7); break; }
+      p += 2 + len;
+    }
+  } catch (e) { /* header unreadable - decode path still works, just without a known size */ }
+  return o;
 }
-async function addFiles(files) {
-  const c = capCtx; let n = 0;
+function parseExif(dv, t, end, o) {
+  const le = dv.getUint16(t) === 0x4949, U16 = i => dv.getUint16(i, le), U32 = i => dv.getUint32(i, le), ok = i => i >= t && i <= end;   /* i = end of the bytes about to be read */
+  const ifd = (off, fn) => { const s = t + off; if (!ok(s + 2)) return; const cnt = U16(s); for (let k = 0; k < cnt; k++) { const e = s + 2 + k * 12; if (!ok(e + 12)) return; fn(U16(e), U16(e + 2), U32(e + 4), U32(e + 8), e + 8); } };
+  const rat = (off, c) => { const a = []; for (let k = 0; k < c; k++) { const q = t + off + k * 8; if (!ok(q + 8)) return null; const d = U32(q + 4); a.push(d ? U32(q) / d : 0); } return a; };
+  const str = (cnt, vo, e) => { const s = cnt > 4 ? t + vo : e; let r = ''; for (let k = 0; k < cnt - 1 && ok(s + k); k++) r += String.fromCharCode(dv.getUint8(s + k)); return r; };
+  let gpsOff = 0, exOff = 0, g = {};
+  ifd(U32(t + 4), (tag, ty, cnt, vo, e) => { if (tag === 0x0112) o.orient = U16(e) || 1; else if (tag === 0x8825) gpsOff = vo; else if (tag === 0x8769) exOff = vo; });
+  if (exOff) ifd(exOff, (tag, ty, cnt, vo, e) => { if (tag === 0x9003) { const m = /^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/.exec(str(cnt, vo, e)); if (m) { const d = new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime(); if (d > 0) o.taken = d; } } });
+  if (gpsOff) ifd(gpsOff, (tag, ty, cnt, vo, e) => { if (tag === 1 || tag === 3) g[tag] = String.fromCharCode(dv.getUint8(e)); else if ((tag === 2 || tag === 4) && cnt === 3) g[tag] = rat(vo, 3); });
+  const dms = a => a && a[0] + a[1] / 60 + a[2] / 3600;
+  if (g[2] && g[4]) { const lat = dms(g[2]) * (g[1] === 'S' ? -1 : 1), lon = dms(g[4]) * (g[3] === 'W' ? -1 : 1); if (isFinite(lat) && isFinite(lon) && (lat || lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) o.gps = { lat, lon }; }
+}
+let cibResize;   /* feature-detect createImageBitmap resize + EXIF orientation once (Safari < 17 lacks resize - it then uses the <img> path) */
+async function cibResizeOK() {
+  if (cibResize !== undefined) return cibResize; cibResize = false;
+  if (!window.createImageBitmap) return false; let c, bm;
+  try { c = document.createElement('canvas'); c.width = 8; c.height = 4; c.getContext('2d').fillRect(0, 0, 8, 4); const b = await new Promise(res => c.toBlob(res, 'image/png'));
+    bm = await createImageBitmap(b, { resizeWidth: 4, resizeHeight: 2, resizeQuality: 'medium', imageOrientation: 'from-image' }); cibResize = bm.width === 4 && bm.height === 2;
+  } catch (e) { cibResize = false; } finally { bm?.close?.(); releaseCanvas(c); }
+  return cibResize;
+}
+const fit = (w, h, max) => { const sc = Math.min(1, max / Math.max(w, h)); return [Math.max(1, Math.round(w * sc)), Math.max(1, Math.round(h * sc)), sc]; };
+/* One attempt: decode already scaled to <= max, draw on ONE canvas of the target size, toBlob, thumb from that canvas, release all. */
+async function encodePhoto(file, hd, max, q, useCib) {
+  let bm = null, img = null, url = '', c = null;
+  try {
+    let src, w, h;
+    const ow = hd.orient >= 5 && hd.orient <= 8 ? hd.h : hd.w, oh = hd.orient >= 5 && hd.orient <= 8 ? hd.w : hd.h;   /* oriented (display) size */
+    if (useCib && ow && oh) {   /* width only: the browser keeps the (oriented) aspect ratio, so a misread EXIF tag can never squash the photo.
+        Cheap 'low' resample to 2x the target, then a 'high'-quality canvas step: same sharpness as 'medium', without Chromium's extra full-size mip buffers (-45 MB on 48 MP) */
+      bm = await createImageBitmap(file, { resizeWidth: Math.min(ow, 2 * fit(ow, oh, max)[0]), resizeQuality: 'low', imageOrientation: 'from-image' }); src = bm; w = bm.width; h = bm.height; }
+    else { url = URL.createObjectURL(file); img = new Image(); img.decoding = 'async';
+      await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('image decode failed')); img.src = url; });
+      src = img; w = img.naturalWidth; h = img.naturalHeight; }
+    if (!w || !h) throw new Error('image has no size');
+    const [cw, ch, sc] = fit(w, h, max);
+    c = document.createElement('canvas'); c.width = cw; c.height = ch; const g = c.getContext('2d'); if (!g) throw new Error('no canvas memory');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, cw, ch); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, cw, ch);
+    bm?.close?.(); bm = null; if (img) { img.src = ''; img = null; } if (url) { URL.revokeObjectURL(url); url = ''; }   /* decoded source gone before encoding */
+    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', q));
+    if (!blob || !blob.size) throw new Error('JPEG encode failed (toBlob returned null)');
+    const thumb = await canvasThumb(c);
+    const native = Math.max(ow || w, oh || h) <= max && sc === 1;
+    if (native && /jpe?g/i.test(file.type || hd.fmt) && blob.size >= file.size) return { blob: new Blob([file], { type: 'image/jpeg' }), width: cw, height: ch, compressed: false, thumb };
+    return { blob, width: cw, height: ch, compressed: true, maxEdge: max, jpegQ: q, thumb };
+  } finally { bm?.close?.(); if (img) img.src = ''; if (url) URL.revokeObjectURL(url); releaseCanvas(c); }
+}
+async function compressPhoto(file, hd) {
+  const errs = []; let useCib = await cibResizeOK();
+  for (const [max, q] of PHOTO_STEPS) {
+    try { const r = await encodePhoto(file, hd, max, q, useCib); if (errs.length) console.warn('photo saved after retry at', max, errs); return { ...r, retries: errs.length }; }
+    catch (e) { errs.push(`${max}px: ${e?.message || e}`); console.warn('photo encode failed', max, e); if (useCib) useCib = false; /* next step: plain <img> decode */
+      await new Promise(r => setTimeout(r, 120)); }   /* give the GC a moment before the smaller retry */
+  }
+  return { failed: true, errs };
+}
+/* Captures are processed strictly one at a time (queue), each persisted before the next is decoded. */
+const capQ = [], capFailed = []; let capRun = null;
+function addFiles(files) {
+  const ctx = { ...capCtx }; for (const file of files) capQ.push({ file, ctx, visitId: S.visit.id });
+  if (!capRun) capRun = runCapQ().finally(() => { capRun = null; });
+  return capRun;
+}
+async function runCapQ() {
   if (!S.media.length) requestPersist();
   const q = await refreshQuota();
   if (q.level === 'block') toast('⚠️ Storage is full - trying to save anyway. Back up and free space now.', 5000);
-  for (const file of files) {
-    const kind = (file.type || '').startsWith('video') ? 'video' : 'photo';
-    toast(`Saving ${kind}…`, 8000);
-    const cp = kind === 'photo' ? await compressPhoto(file) : null;
-    const blob = cp?.blob || new Blob([file], { type: file.type || 'application/octet-stream' });
-    const [thumb, gps, crc] = await Promise.all([makeThumb(blob, kind), getGps(), crc32Blob(blob)]);
-    const m = { id: uid(), visitId: S.visit.id, dayId: activeDay()?.id, stopId: c.stop || '', shotId: c.shot || '', recordId: c.rec || '', kind, photoType: c.type || (kind === 'video' ? 'video_operation' : 'other'),
-      mime: blob.type, name: file.name || '', size: blob.size, origSize: file.size, origMime: file.type || '', width: cp?.width, height: cp?.height, compressed: !!cp?.compressed, crc,
-      blob, thumb, note: '', tags: [], sensitive: false, gps, capturedAt: Date.now(), takenAt: file.lastModified || Date.now(), createdAt: Date.now(), updatedAt: Date.now(), ...who() };
-    if (!EN.photoType.includes(m.photoType)) m.photoType = 'other';
-    assignMediaName(S, m);                   // filename + sequence fixed now (should-fix); never renamed implicitly
-    m.bid = nextBid('media');                // 3.6.0 B2: photo ID (MED-JR-0007) at capture, every path (shot list, freeform, video, library, floating camera)
-    S.media.push(m); touch('media', m); touch('visits', S.visit); n++;
+  let n = 0, bad = 0;
+  while (capQ.length) { const it = capQ.shift(); const r = await captureOne(it); if (r === true) n++; else if (r === false) bad++; }
+  capMark(null);
+  if (capFailed.length) showCapFail(); else if (n || bad) toast(!bad ? `Saved ${n} file${n === 1 ? '' : 's'} ✓` : `⛔ ${bad} file${bad === 1 ? '' : 's'} NOT SAVED - storage error. See the red banner.`, bad ? 6000 : 2400);
+  route(); refreshQuota();
+}
+/* returns true (saved), false (storage error - stays queued in memory with the red banner), or 'failed' (photo processing failed - card) */
+async function captureOne(it, raw = false) {
+  if (!S || S.visit.id !== it.visitId) { capFailed.push(it); return 'failed'; }
+  const file = it.file, c = it.ctx, kind = (file.type || '').startsWith('video') ? 'video' : 'photo';
+  toast(`Saving ${kind}…`, 8000);
+  const gpsP = getGps();   /* runs while the photo is processed */
+  let cp = null, hd = { orient: 1 };
+  if (kind === 'photo') {
+    hd = await readImageHead(file);
+    if (!raw && (PHOTO_RE.test(file.type || '') || hd.fmt)) { cp = await compressPhoto(file, hd); if (cp.failed) { it.errs = cp.errs; capFailed.push(it); await gpsP; return 'failed'; } }
   }
-  const ok = await flush();
-  toast(ok ? `Saved ${n} file${n === 1 ? '' : 's'} ✓` : `⛔ ${n} file${n === 1 ? '' : 's'} NOT SAVED - storage error. See the red banner.`, ok ? 2400 : 6000); route(); refreshQuota();
+  const blob = cp?.blob || new Blob([file], { type: file.type || 'application/octet-stream' });   /* videos / originals: the File itself, never read into memory */
+  const [thumb, gps] = await Promise.all([cp ? cp.thumb : makeThumb(blob, kind), gpsP]);
+  const crc = await crc32Blob(blob);
+  const now = Date.now(), exifGps = S.visit.gps && hd.gps ? { ...hd.gps, src: 'exif' } : null;
+  const m = { id: uid(), visitId: S.visit.id, dayId: activeDay()?.id, stopId: c.stop || '', shotId: c.shot || '', recordId: c.rec || '', kind, photoType: c.type || (kind === 'video' ? 'video_operation' : 'other'),
+    mime: blob.type || 'application/octet-stream', name: file.name || '', size: blob.size, origSize: file.size, origMime: file.type || '', width: cp?.width || (raw ? (hd.orient >= 5 ? hd.h : hd.w) || undefined : undefined), height: cp?.height || (raw ? (hd.orient >= 5 ? hd.w : hd.h) || undefined : undefined),
+    compressed: !!cp?.compressed, crc, blob, thumb, note: '', tags: [], sensitive: false, gps: gps || exifGps, capturedAt: now, takenAt: hd.taken || file.lastModified || now, createdAt: now, updatedAt: now, ...who() };
+  if (cp?.compressed) { m.maxEdge = cp.maxEdge; m.jpegQ = cp.jpegQ; }
+  if (raw) m.uncompressed = true;
+  if (!EN.photoType.includes(m.photoType)) m.photoType = 'other';
+  assignMediaName(S, m);                   // filename + sequence fixed now (should-fix); never renamed implicitly
+  m.bid = nextBid('media');                // 3.6.0 B2: photo ID (MED-JR-0007) at capture, every path (shot list, freeform, video, library, floating camera)
+  S.media.push(m); touch('media', m); touch('visits', S.visit);
+  it.file = null; cp = null;               // drop our reference to the original as soon as it is stored
+  return await flush();
+}
+function capWhere(it) { const st = S?.stops.find(s => s.id === it.ctx.stop), sh = st?.shots?.find(x => x.id === it.ctx.shot);
+  return [st ? stopName(st.id) : '', sh?.text || PHOTO_TYPE[it.ctx.type]?.label || ''].filter(Boolean).join(' · '); }
+function showCapFail() {
+  if (!capFailed.length) return; $('.modal.capfail')?.remove();
+  const n = capFailed.length, mb = capFailed.reduce((a, it) => a + (it.file?.size || 0), 0) / 1048576;
+  modal(`<h3>⛔ ${n === 1 ? 'Photo' : n + ' photos'} NOT saved</h3>
+    <p>The phone could not process ${n === 1 ? 'this photo' : 'these photos'} (tried ${PHOTO_STEPS.map(s => s[0] + ' px').join(', ')} - usually low memory). <b>Your notes and everything else are saved.</b></p>
+    <p class="small muted">${capFailed.map(it => esc(capWhere(it) || it.file?.name || 'photo')).join('<br>')}</p>
+    <button class="btn big pri" data-act="capretry" style="width:100%">↻ Retry</button>
+    <div class="row" style="margin-top:.6rem"><button class="btn" data-act="capraw">Save original without compression (${mb.toFixed(1)} MB)</button><button class="btn danger" data-act="capdiscard">Discard</button></div>
+    <p class="small muted">If Retry keeps failing: close other apps, or save the original and back up soon (originals use more storage).</p>`, 'capfail');
+}
+async function capRetry(raw) {
+  const items = capFailed.splice(0); closeModal(false);
+  if (!S) return;
+  let n = 0, bad = 0; for (const it of items) { if (!it.file) continue; const r = await captureOne(it, raw); if (r === true) n++; else if (r === false) bad++; }
+  if (capFailed.length) showCapFail(); else toast(bad ? `⛔ ${bad} NOT SAVED - storage error. See the red banner.` : `Saved ${n} file${n === 1 ? '' : 's'} ✓${raw ? ' (original, uncompressed)' : ''}`, bad ? 6000 : 2400);
+  route(); refreshQuota();
+}
+/* If iOS reloads the page mid-capture (low memory), the photo is gone - say so on the next launch instead of failing silently. */
+function capMark(v) { try { v ? localStorage.setItem('sv-cap-pending', JSON.stringify(v)) : localStorage.removeItem('sv-cap-pending'); } catch (e) { } }
+function capInterrupted() {
+  let mk; try { mk = JSON.parse(localStorage.getItem('sv-cap-pending') || 'null'); } catch (e) { } capMark(null);
+  if (!mk || !(Date.now() - mk.at < 10 * 60000) || !S || S.visit.id !== mk.visitId || $('.modal')) return;
+  capCtx = mk.ctx;
+  modal(`<h3>⚠️ Last ${mk.kind === 'video' ? 'video' : 'photo'} was not saved</h3><p>The app was restarted (iOS low memory) while ${mk.phase === 'processing' ? 'saving' : 'taking'} it. Nothing else was lost.</p>
+    <p class="small muted">${esc(capWhere({ ctx: mk.ctx }))}</p><button class="btn big pri" data-act="capretake" data-kind="${esc(mk.kind || 'photo')}" style="width:100%">📷 Retake now</button><div class="row" style="margin-top:.6rem"><button class="btn" data-act="mclose">Close</button></div>`, 'capfail');
 }
 function startCapture(b) {
   if (quota.level === 'block') { modal(`<h3>⛔ Storage full</h3><p>${((quota.quota - quota.usage) / 1048576).toFixed(0)} MB free. Back up, then delete old media or visits before taking more photos.</p><div class="row"><button class="btn pri" data-act="backup" data-x="incremental">💾 Back up now</button><button class="btn" data-act="mclose">Close</button></div>`); return; }
   const sh = b.dataset.shot && S.stops.find(s => s.id === b.dataset.stop)?.shots.find(x => x.id === b.dataset.shot);
   capCtx = { stop: b.dataset.stop, shot: b.dataset.shot, rec: b.dataset.rec, type: sh ? sh.photoType : b.dataset.type || b.closest('.capbox')?.querySelector('select.captype')?.value || '' };
-  const k = b.dataset.kind, el = $(k === 'video' ? '#capVideo' : k === 'lib' ? '#capLib' : '#capPhoto');
-  el.value = ''; el.click(); refreshQuota();
+  openCapInput(b.dataset.kind);
+}
+function openCapInput(k) {
+  const el = $(k === 'video' ? '#capVideo' : k === 'lib' ? '#capLib' : '#capPhoto');
+  el.value = ''; el.click();
+  capMark({ at: Date.now(), visitId: S.visit.id, ctx: capCtx, kind: k === 'video' ? 'video' : 'photo', phase: 'camera' });
+  flush(); refreshQuota();   /* typed notes are on disk before the camera takes the phone's memory */
 }
 function fab() {
   const p = location.hash.split('/'), s = p[3] === 's' ? S.stops.find(x => x.id === p[4]) : null, r = p[3] === 'r' ? S.records.find(x => x.id === p[4]) : null;
@@ -1108,6 +1239,10 @@ async function onClick(e) {
       case 'retrysave': { saveFail = 0; const ok = await flush(); toast(ok ? 'Saved ✓' : 'Still NOT SAVED - free space (Media) and retry', 3500); break; }
       case 'go': location.hash = b.dataset.href; break;
       case 'cap': startCapture(b); break;
+      case 'capretry': await capRetry(false); break;
+      case 'capraw': await capRetry(true); break;
+      case 'capdiscard': if (confirm(`Discard ${capFailed.length === 1 ? 'this photo' : capFailed.length + ' photos'}? ${capFailed.length === 1 ? 'It is' : 'They are'} not saved anywhere.`)) { capFailed.splice(0); closeModal(); } break;
+      case 'capretake': closeModal(false); openCapInput(b.dataset.kind); break;
       case 'fab': fab(); break;
       case 'media': openMedia(b.dataset.id); break;
       case 'mclose': closeModal(); break;
@@ -1267,7 +1402,11 @@ document.addEventListener('change', e => { if (e.target.tagName === 'SELECT' || 
 document.addEventListener('toggle', e => { const k = e.target.dataset?.key; if (!k) return; ui.open[k] = e.target.open; localStorage.setItem('sv-open', JSON.stringify(ui.open));
   const ph = e.target.querySelector(':scope > .secbody > [data-lazy]'); if (e.target.open && ph && lazy[k]) ph.outerHTML = lazy[k](); }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('.modal') && !bk) closeModal(); });
-for (const id of ['capPhoto', 'capVideo', 'capLib']) document.getElementById(id).addEventListener('change', e => e.target.files.length && addFiles([...e.target.files]).catch(err => toast('Capture failed: ' + err.message, 6000)));
+for (const id of ['capPhoto', 'capVideo', 'capLib']) { const el = document.getElementById(id);
+  el.addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; if (!fs.length) return capMark(null);   /* input lets go of the File list */
+    try { const mk = JSON.parse(localStorage.getItem('sv-cap-pending') || 'null'); if (mk) capMark({ ...mk, phase: 'processing', at: Date.now() }); } catch (_) { }
+    addFiles(fs).catch(err => { capMark(null); toast('Capture failed: ' + err.message, 6000); }); });
+  el.addEventListener('cancel', () => capMark(null)); }
 $('#impFile').addEventListener('change', e => e.target.files[0] && importFile(e.target.files[0]).catch(err => { console.error(err); modal(`<h3>Import failed</h3><p>${esc(err.message)}</p><p>Nothing on this device was changed.</p><button class="btn pri" data-act="mclose">OK</button>`); }));
 addEventListener('online', () => route()); addEventListener('offline', () => route());
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; if (!S) route(); });
@@ -1311,4 +1450,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.SV_
   navigator.serviceWorker.register('sw.js').then(() => { const el = $('#swstat'); if (el) el.textContent = swStatus(); }).catch(e => console.warn('SW failed', e));
 navigator.serviceWorker?.addEventListener?.('controllerchange', () => { const el = $('#swstat'); if (el) el.textContent = swStatus(); if (route.hadController) toast('App updated ✓ - close and reopen the app to use the new version', 6000); });
 route.hadController = !!navigator.serviceWorker?.controller;
-iosGate(); acquireLock(); refreshQuota(); route().then(() => setTimeout(firstRunRules, 50));
+iosGate(); acquireLock(); refreshQuota(); route().then(() => setTimeout(() => { capInterrupted(); firstRunRules(); }, 50));
